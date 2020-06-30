@@ -32,7 +32,7 @@ public:
 		{
 			for (int y = ScreenTL.y; y < ScreenBR.y; ++y)
 			{
-				/*C part*/
+				/*C part*/e
 				double CReal = (x * ScaleX) + FractalTL.x;
 				double CIm = (y * ScaleY) + FractalTL.y;
 
