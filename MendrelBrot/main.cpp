@@ -1,6 +1,6 @@
 #define OLC_PGE_APPLICATION
 #include "olcPixelGameEngine.h"
-#include <complex>
+#include <immintrin.h>
 
 class MendrelBrot : public olc::PixelGameEngine
 {
@@ -17,7 +17,7 @@ public:
 		IterationStore.reserve(ScreenHeight() * ScreenWidth());
 		for (int i = 0; i < ScreenHeight() * ScreenWidth(); ++i)
 		{
-			IterationStore.push_back(0);
+			IterationStore.emplace_back(0);
 		}
 		return true;
 	}
@@ -55,6 +55,84 @@ public:
 			}
 		}
 	}
+
+
+	void ComputeFractalSIMD(olc::vd2d& ScreenTL, olc::vd2d& ScreenBR, olc::vd2d& FractalTL, olc::vd2d& FractalBR, int maxiterations)
+	{
+		const double ScaleX = (FractalTL.x - FractalBR.x) / (ScreenTL.x - ScreenBR.x);
+		const double ScaleY = (FractalTL.y - FractalBR.y) / (ScreenTL.y - ScreenBR.y);
+		
+		//set up scale vector
+		__m256d ScaleXVector = _mm256_setr_pd(ScaleX, ScaleX, ScaleX, ScaleX);
+		__m256d ScaleYVector = _mm256_setr_pd(ScaleY, ScaleY, ScaleY, ScaleY);
+
+		//fractal top left vector
+		__m256d FractalTLVectorY = _mm256_set1_pd(FractalTL.y);
+		__m256d FractalTLVectorX = _mm256_set1_pd(FractalTL.x);
+
+		__m256d CImVector, CReVector, ZImVector, ZReVector , ZTempVector, two, four;
+
+		two = _mm256_set1_pd(2.0);		//for computing fractal
+		four = _mm256_set1_pd(4.0);		//to check while loop condition.
+
+		__m256d YValue, XValue;
+
+		//for each pixel in screen space
+		for (int x = ScreenTL.x; x < ScreenBR.x; ++x)
+		{
+			for (int y = ScreenTL.y; y < ScreenBR.y; y += 4)
+			{
+				/*what we CAN do , is compute 4 doubles at ONE go with mm256. we could calcualte for 4 complex numbers at a time*/
+				
+				
+
+				/*C part*/
+				double CReal = (x * ScaleX) + FractalTL.x;
+				double CIm = (y * ScaleY) + FractalTL.y;
+
+				/*imaginary C computation*/
+				YValue = _mm256_setr_pd(y, y + 1, y + 2, y + 3);
+				CImVector = _mm256_mul_pd(YValue, ScaleXVector);
+				CImVector = _mm256_add_pd(YValue, FractalTLVectorY);
+
+				/*Real C computation*/
+				XValue = _mm256_set1_pd((double)x);
+				CReVector = _mm256_mul_pd(XValue, ScaleXVector);
+				CReVector = _mm256_add_pd(XValue, FractalTLVectorX);
+
+				double ZReal = 0.0;
+				double ZIm = 0.0;
+				/*initilaize Z Vector*/
+				ZReVector = _mm256_set1_pd(0.0);
+				ZImVector = _mm256_set1_pd(0.0);
+
+				int iteration_counter = 0;
+
+				while ((ZReal*ZReal + ZIm * ZIm) < 4.0 && iteration_counter < maxiterations)
+				{
+					/*F(Z) = Z^2  + C*/
+
+					//double ZTemp = (ZReal * ZReal) - (ZIm * ZIm) + CReal;
+					ZTempVector = _mm256_mul_pd(ZReVector , ZReVector);
+					ZTempVector = _mm256_sub_pd(ZTempVector, _mm256_mul_pd(ZImVector, ZImVector));
+					ZTempVector = _mm256_sub_pd(ZTempVector, CReVector);
+					
+					//ZIm = 2 * (ZIm * ZReal) + CIm;
+					ZImVector = _mm256_mul_pd(ZImVector , ZReVector);
+					ZImVector = _mm256_fmadd_pd(ZImVector,two, CImVector);
+					
+					//ZReal = ZTemp;
+					ZReVector = ZTempVector;
+
+					
+					++iteration_counter;
+				}
+
+				IterationStore[x + ScreenWidth() * y] = iteration_counter;
+			}
+		}
+	}
+
 
 	//render fractal with some colours.
 	void RenderFractal()
@@ -155,7 +233,7 @@ public:
 
 private:
 	olc::vd2d MouseStartPos;
-	olc::vd2d Scale = { 1280.0 / 2.0, 720.0 };
+	olc::vd2d Scale = { 1280.0 * 0.5 , 720.0 };
 	olc::vd2d OffSet = { 0.0 , 0.0 };
 
 	int maxiterations = 50;
