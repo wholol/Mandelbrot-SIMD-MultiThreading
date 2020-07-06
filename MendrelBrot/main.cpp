@@ -1,6 +1,8 @@
 #define OLC_PGE_APPLICATION
 #include "olcPixelGameEngine.h"
 #include <immintrin.h>
+#include <thread>
+
 
 class MendrelBrot : public olc::PixelGameEngine
 {
@@ -19,10 +21,11 @@ public:
 		{
 			IterationStore.emplace_back(0);
 		}
+
 		return true;
 	}
 
-	void ComputeFractal(olc::vd2d& ScreenTL, olc::vd2d& ScreenBR, olc::vd2d& FractalTL, olc::vd2d& FractalBR, int maxiterations)
+	void ComputeFractal(const olc::vd2d& ScreenTL, const olc::vd2d& ScreenBR, const olc::vd2d& FractalTL, const olc::vd2d& FractalBR, int maxiterations)
 	{
 		const double ScaleX = (FractalTL.x - FractalBR.x) / (ScreenTL.x - ScreenBR.x);
 		const double ScaleY = (FractalTL.y - FractalBR.y) / (ScreenTL.y - ScreenBR.y);
@@ -57,14 +60,14 @@ public:
 	}
 
 
-	void ComputeFractalSIMD(olc::vd2d& ScreenTL, olc::vd2d& ScreenBR, olc::vd2d& FractalTL, olc::vd2d& FractalBR, int maxiterations)
+	void ComputeFractalSIMD(const olc::vd2d& ScreenTL, const olc::vd2d& ScreenBR, const olc::vd2d& FractalTL, const olc::vd2d& FractalBR, int maxiterations)
 	{
 		const double ScaleX = (FractalTL.x - FractalBR.x) / (ScreenTL.x - ScreenBR.x);
 		const double ScaleY = (FractalTL.y - FractalBR.y) / (ScreenTL.y - ScreenBR.y);
 		
-		//set up scale vector
+		//set up scale x and scale y vector
 		__m256d ScaleXVector = _mm256_set1_pd(ScaleX);
-		__m256d ScaleYVector = _mm256_set1_pd(ScaleY);;
+		__m256d ScaleYVector = _mm256_set1_pd(ScaleY);
 
 		//fractal top left vector
 		__m256d FractalTLVectorY = _mm256_set1_pd(FractalTL.y);
@@ -78,8 +81,9 @@ public:
 		__m256i cmp_cond_2;
 		__m256i CounterVector;		//counter vector
 
-		int* getCounters;
-		int* getIterations;
+		
+		long long* getCounters;
+		long long* getIterations; /*epi64 is used, need 64 bit ints. thes pointers can collect the data */
 		
 		__m256d ZMagnitude;	//ZMagnitude t check for bounds
 
@@ -97,6 +101,8 @@ public:
 		//for each pixel in screen space
 		for (int x = ScreenTL.x; x < ScreenBR.x; ++x)
 		{
+			XValue = _mm256_set1_pd((double)x);
+
 			for (int y = ScreenTL.y; y < ScreenBR.y; y += 4)
 			{
 				/*what we CAN do , is compute 4 doubles at ONE go with mm256. we could calculate for 4 complex numbers at a time*/
@@ -105,20 +111,17 @@ public:
 				
 				//double CIm = (y * ScaleY) + FractalTL.y;
 				/*imaginary C computation*/
-				YValue = _mm256_setr_pd(y, y + 1, y + 2, y + 3);
-				CImVector = _mm256_mul_pd(YValue, ScaleXVector);
-				CImVector = _mm256_add_pd(CImVector, FractalTLVectorY);
+				YValue = _mm256_set_pd((double)y, (double)(y + 1), (double)(y + 2), (double)(y + 3));
+				CImVector = _mm256_fmadd_pd(YValue, ScaleYVector,FractalTLVectorY);
 
 				//double CReal = (x * ScaleX) + FractalTL.x;
 				/*Real C computation*/
-				XValue = _mm256_set1_pd((double)x);
-				CReVector = _mm256_mul_pd(XValue, ScaleXVector);
-				CReVector = _mm256_add_pd(CReVector, FractalTLVectorX);
+				CReVector = _mm256_fmadd_pd(XValue, ScaleXVector, FractalTLVectorX);
 
-				//double ZReal = 0.0;
-				//double ZIm = 0.0;
 				/*initilaize Z Vector*/
+				//double ZReal = 0.0;
 				ZReVector = _mm256_set1_pd(0.0);
+				//double ZIm = 0.0;
 				ZImVector = _mm256_set1_pd(0.0);
 
 				//int iteration_counter = 0;
@@ -160,25 +163,49 @@ public:
 					/*add 1 to the iteration counter*/
 					//++iteration_counter;
 					IterationVector = _mm256_add_epi64(IterationVector, CounterVector);
-
 					//continue the while loop if any outputs of the counter are not zero.
-					getCounters = (int*)&(CounterVector);
-					if (!(getCounters[0] == 0 && getCounters[1] == 0 && getCounters[2] == 0 && getCounters[2] == 0))
+					getCounters = (long long*)&(CounterVector);
+					if ((getCounters[0] == 0 && getCounters[1] == 0 && getCounters[2] == 0 && getCounters[3] == 0))
 					{
-						goto repeat;
+			
+						getIterations = (long long*)&(IterationVector);
+						IterationStore[x + ScreenWidth() * y] = int(IterationVector.m256i_i64[3]);
+						IterationStore[x + ScreenWidth() * (y + 1)] = int(IterationVector.m256i_i64[2]);
+						IterationStore[x + ScreenWidth() * (y + 2)] = int(IterationVector.m256i_i64[1]);
+						IterationStore[x + ScreenWidth() * (y + 3)] = int(IterationVector.m256i_i64[0]);
 					}
 					else {
-						getIterations = (int*)&(IterationVector);
-						IterationStore[x + ScreenWidth() * y] = getIterations[3];
-						IterationStore[x + ScreenWidth() * (y + 1)] = getIterations[2];
-						IterationStore[x + ScreenWidth() * (y + 2)] = getIterations[1];
-						IterationStore[x + ScreenWidth() * (y + 3)] = getIterations[0];
+						goto repeat;
 					}
 			}
 		}
 	}
 
+	void ComputeFractal_4_Threads(olc::vd2d& ScreenTL, olc::vd2d& ScreenBR, olc::vd2d& FractalTL, olc::vd2d& FractalBR, int maxiterations)
+	{
+		static constexpr uint8_t ThreadNumbers = 4;
+		std::thread t1[ThreadNumbers];		
 
+		int ScreenWidth = (ScreenBR.x - ScreenTL.x) / ThreadNumbers;
+		double FractalWidth = (FractalBR.x - FractalTL.x) / (double)ThreadNumbers;
+		
+		for (int i = 0; i < ThreadNumbers; ++i)
+		{
+			t1[i] = std::thread(&MendrelBrot::ComputeFractalSIMD,this,
+				olc::vd2d(ScreenTL.x +  ScreenWidth * (i) , ScreenTL.y),			//SCREENTL
+				olc::vd2d(ScreenTL.x + ScreenWidth * (i + 1) , ScreenBR.y ),	//SCREENBR
+				olc::vd2d(FractalTL.x + FractalWidth * (double)(i), FractalTL.y),
+				olc::vd2d(FractalTL.x + FractalWidth * (double)(i + 1), FractalBR.y),
+				maxiterations);
+		}
+
+		for (int i = 0; i < ThreadNumbers; ++i)
+		{
+			t1[i].join();
+		}
+	}
+
+	
 	//render fractal with some colours.
 	void RenderFractal()
 	{
@@ -187,7 +214,7 @@ public:
 			for (int y = 0; y < ScreenHeight(); ++y)
 			{
 				float n = (float)IterationStore[x + ScreenWidth() * y];
-				const float a = 0.1f;
+				static constexpr float a = 0.1f;
 				Draw(x, y, olc::PixelF(0.5f * sinf(a * n) + 0.5f, 0.5f * sinf(a * n + 2.094f) + 0.5f, 0.5f * sinf(a * n + 4.188f) + 0.5f));
 			}
 		}
@@ -195,6 +222,44 @@ public:
 
 	bool OnUserUpdate(float fElapsedTime) override
 	{
+		//top left and bottom right of screenspace
+		olc::vd2d ScreenTL = { 0 , 0 };
+		olc::vd2d ScreenBR = { 1280, 720 };
+
+		//top elft and bottom right of mendrelbrot space
+		olc::vd2d FractalTL = { -2.0f , -1.0f };
+		olc::vd2d FractalBR = { 1.0f , 1.0f };
+
+		/*map the screen space to world space*/
+		ScreenToWorld(ScreenTL, FractalTL);
+		ScreenToWorld(ScreenBR, FractalBR);
+
+		//compute performance
+		auto StartTime = std::chrono::high_resolution_clock::now();
+		switch (SimulationType)
+		{
+		case 0:
+			SimulationTypeString = "naive algorithm";
+			ComputeFractal(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
+			break;
+
+		case 1:
+			SimulationTypeString = "SIMD";
+			ComputeFractalSIMD(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
+			break;
+
+		
+		case 2:
+			SimulationTypeString = "4 threads";
+			ComputeFractal_4_Threads(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
+			break;
+		}
+
+		auto EndTime = std::chrono::high_resolution_clock::now();
+
+		std::chrono::duration<double> TimeTaken = EndTime - StartTime;
+
+
 		olc::vd2d GetMousePos = { (double)GetMouseX() , (double)GetMouseY() };
 
 
@@ -240,50 +305,20 @@ public:
 		}
 		if (GetKey(olc::Key::DOWN).bPressed)
 		{
+			
 			maxiterations -= 100;
-		}
-
-
-		//top left and bottom right of screenspace
-		olc::vd2d ScreenTL = { 0 , 0 };
-		olc::vd2d ScreenBR = { 1280, 720 };
-
-		//top elft and bottom right of mendrelbrot space
-		olc::vd2d FractalTL = { -2.0f , 1.0f };
-		olc::vd2d FractalBR = { 1.0f , -1.0f };
-
-		/*map the screen space to world space*/
-		ScreenToWorld(ScreenTL, FractalTL);
-		ScreenToWorld(ScreenBR, FractalBR);
-
-		if (GetKey(olc::Key::Z).bPressed)
-		{
-			SimulationType += 1;
-			if (SimulationType == 2)
+			if (maxiterations <= 50)
 			{
-				SimulationType = 0;
+				maxiterations = 50;
 			}
 		}
 
-		//compute performance
-		auto StartTime = std::chrono::high_resolution_clock::now();
-		switch (SimulationType)
+		if (GetKey(olc::Key::Z).bPressed)
 		{
-			case 0:
-				SimulationTypeString = "naive algorithm";
-				ComputeFractal(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
-				break;
-
-			case 1:
-				SimulationTypeString = "SIMD";
-				ComputeFractalSIMD(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
-				break;
+			
+			SimulationType += 1;
+			SimulationType = SimulationType % SimulationNumbers;
 		}
-
-		auto EndTime = std::chrono::high_resolution_clock::now();
-		
-		std::chrono::duration<double> TimeTaken = EndTime - StartTime;
-
 
 		//render the fractal (not included in computation)
 		RenderFractal();
@@ -301,15 +336,16 @@ private:
 	olc::vd2d Scale = { 1280.0 * 0.5 , 720.0 };
 	olc::vd2d OffSet = { 0.0 , 0.0 };
 
-	int SimulationType = 0;
-	std::string SimulationTypeString = "naive algorithm";
+	int SimulationType = 0;			//specifiy which type of simulation is being simulated.
+	int SimulationNumbers = 3;		//number of simualtions avaiable 
+	std::string SimulationTypeString;
 
 	int maxiterations = 50;
 
 private:
 	 //stores the iteration counter for the fractal (purpose for colouring the fractal)
 	 std::vector<int> IterationStore;
-
+	
 	 void WorldToScreen(const olc::vd2d& v, olc::vi2d &n)
 	 {
 		 n.x = (int)((v.x - OffSet.x) * Scale.x);
