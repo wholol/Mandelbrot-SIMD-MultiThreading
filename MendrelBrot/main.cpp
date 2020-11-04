@@ -1,7 +1,11 @@
-#define OLC_PGE_APPLICATION
+﻿#define OLC_PGE_APPLICATION
 #include "olcPixelGameEngine.h"
 #include <immintrin.h>
 #include <thread>
+#include <functional>
+#include <condition_variable>
+#include <mutex>
+#include <complex>
 
 
 class MendrelBrot : public olc::PixelGameEngine
@@ -24,15 +28,65 @@ public:
 		return true;
 	}
 
+	void CreateFractalNoComplex(const olc::vi2d& pix_tl, const olc::vi2d& pix_br, const olc::vd2d& frac_tl, const olc::vd2d& frac_br, const int iterations)
+	{
+		double x_scale = (frac_br.x - frac_tl.x) / (double(pix_br.x) - double(pix_tl.x));
+		double y_scale = (frac_br.y - frac_tl.y) / (double(pix_br.y) - double(pix_tl.y));
+
+		double x_pos = frac_tl.x;
+		double y_pos = frac_tl.y;
+
+		int y_offset = 0;
+		int row_size = ScreenWidth();
+
+		int x, y, n;
+
+		double cr = 0;
+		double ci = 0;
+		double zr = 0;
+		double zi = 0;
+		double re = 0;
+		double im = 0;
+
+		for (y = pix_tl.y; y < pix_br.y; y++)
+		{
+			x_pos = frac_tl.x;
+			ci = y_pos;
+			for (x = pix_tl.x; x < pix_br.x; x++)
+			{
+				cr = x_pos;
+				zr = 0;
+				zi = 0;
+
+				n = 0;
+				while ((zr * zr + zi * zi) < 4.0 && n < iterations)
+				{
+					re = zr * zr - zi * zi + cr;
+					im = zr * zi * 2.0 + ci;
+					zr = re;
+					zi = im;
+					n++;
+				}
+
+				IterationStore[y_offset + x] = n;
+				x_pos += x_scale;
+			}
+
+			y_pos += y_scale;
+			y_offset += row_size;
+		}
+	}
+
+	//normal algorithm
 	void ComputeFractal(const olc::vd2d& ScreenTL, const olc::vd2d& ScreenBR, const olc::vd2d& FractalTL, const olc::vd2d& FractalBR, int maxiterations)
 	{
-		const double ScaleX = (FractalTL.x - FractalBR.x) / (ScreenTL.x - ScreenBR.x);
-		const double ScaleY = (FractalTL.y - FractalBR.y) / (ScreenTL.y - ScreenBR.y);
-
+		const double ScaleX = (FractalBR.x - FractalTL.x) / (ScreenBR.x - ScreenTL.x);
+		const double ScaleY = (FractalBR.y - FractalTL.y) / (ScreenBR.y - ScreenTL.y);
+	
 		//for each pixel in screen space
-		for (int x = ScreenTL.x; x < ScreenBR.x; ++x)
+		for (int x = ScreenTL.x; x < (int)ScreenBR.x; ++x)
 		{
-			for (int y = ScreenTL.y; y < ScreenBR.y; ++y)
+			for (int y = ScreenTL.y; y < (int)ScreenBR.y; ++y)
 			{
 				/*C part*/
 				double CReal = ((double)x * ScaleX) + FractalTL.x;
@@ -59,6 +113,7 @@ public:
 		}
 	}
 
+	//algorithm with SIMD
 	void ComputeFractalSIMD(const olc::vd2d& ScreenTL, const olc::vd2d& ScreenBR, const olc::vd2d& FractalTL, const olc::vd2d& FractalBR, int maxiterations)
 	{
 		const double ScaleX = (FractalTL.x - FractalBR.x) / (ScreenTL.x - ScreenBR.x);
@@ -94,11 +149,11 @@ public:
 		__m256d YValue, XValue;
 
 		//for each pixel in screen space
-	for (int x = ScreenTL.y; x < ScreenBR.x; ++x)
+	for (int x = (int)ScreenTL.y; x < (int)ScreenBR.x; ++x)
 		{
 			XValue = _mm256_set1_pd((double)x);
 
-			for (int y = ScreenTL.y; y < ScreenBR.y; y += 4)
+			for (int y = (int)ScreenTL.y; y < (int)ScreenBR.y; y += 4)
 			{
 				/*what we CAN do , is compute 4 doubles at ONE go with mm256. we could calculate for 4 complex numbers at a time*/
 				
@@ -177,19 +232,24 @@ public:
 
 	void ComputeFractal_4_Threads(olc::vd2d& ScreenTL, olc::vd2d& ScreenBR, olc::vd2d& FractalTL, olc::vd2d& FractalBR, int maxiterations)
 	{
-		static constexpr uint8_t ThreadNumbers = 2;
+		static constexpr uint8_t ThreadNumbers = 32;
 		std::thread t1[ThreadNumbers];		
 
 		int ScreenWidth = (ScreenBR.x - ScreenTL.x) / ThreadNumbers;
-		double FractalWidth = (FractalBR.x - FractalTL.x) / (double)ThreadNumbers;
+		double FractalWidth = (FractalBR.x - FractalTL.x) / double(ThreadNumbers);
 		
 		for (int i = 0; i < ThreadNumbers; ++i)
 		{
-			t1[i] = std::thread(&MendrelBrot::ComputeFractalSIMD,this,
+			olc::vd2d ScreenTLt1 = olc::vd2d(ScreenTL.x + ScreenWidth * (i), ScreenTL.y);
+			olc::vd2d ScreenBRt1 = olc::vd2d(ScreenTL.x + ScreenWidth * (i + 1), ScreenBR.y);
+			olc::vd2d FractalTLt1 = olc::vd2d(FractalTL.x + FractalWidth * (double)(i), FractalTL.y);
+			olc::vd2d FractalBRt1 = olc::vd2d(FractalTL.x + FractalWidth * (double)(i + 1), FractalBR.y);
+
+				t1[i] = std::thread(&MendrelBrot::CreateFractalNoComplex,this,
 				olc::vd2d(ScreenTL.x +  ScreenWidth * (i) , ScreenTL.y),			//SCREENTL
-				olc::vd2d(ScreenTL.x + ScreenWidth * (i + 1) , ScreenBR.y),	//SCREENBR
-				olc::vd2d(FractalTL.x + FractalWidth * (double)(i), FractalTL.y),
-				olc::vd2d(FractalTL.x + FractalWidth * (double)(i + 1), FractalBR.y),
+				olc::vd2d(ScreenTL.x + ScreenWidth * (i + 1) , ScreenBR.y),			//SCREENBR
+				olc::vd2d(FractalTL.x + FractalWidth * (double)(i), FractalTL.y),		//FRACTALTL
+				olc::vd2d(FractalTL.x + FractalWidth * (double)(i + 1), FractalBR.y),	//FRACTALBR
 				maxiterations);
 		}
 
@@ -216,24 +276,9 @@ public:
 
 	bool OnUserUpdate(float fElapsedTime) override
 	{
-		//top left and bottom right of screenspace
-		olc::vd2d ScreenTL = { 0 , 0 };
-		olc::vd2d ScreenBR = { 1280, 720 };
-
-		//top elft and bottom right of mendrelbrot space
-		olc::vd2d FractalTL = { -2.0f , -1.0f };
-		olc::vd2d FractalBR = { 1.0f , 1.0f };
-
-		/*map the screen space to world space*/
-		ScreenToWorld(ScreenTL, FractalTL);
-		ScreenToWorld(ScreenBR, FractalBR);
-
-		//compute performance
 		
-
-
+		
 		olc::vd2d GetMousePos = { (double)GetMouseX() , (double)GetMouseY() };
-
 
 		if (GetKey(olc::Key::A).bPressed)
 		{
@@ -292,6 +337,19 @@ public:
 			SimulationType = SimulationType % SimulationNumbers;
 		}
 
+		//top left and bottom right of screenspace
+		olc::vd2d ScreenTL = { 0 , 0 };
+		olc::vd2d ScreenBR = { 1280, 720 };
+
+		//top elft and bottom right of mendrelbrot space
+		olc::vd2d FractalTL = { -2.0f , -1.0f };
+		olc::vd2d FractalBR = { 1.0f , 1.0f };
+
+		/*map the screen space to world space*/
+		ScreenToWorld(ScreenTL, FractalTL);
+		ScreenToWorld(ScreenBR, FractalBR);
+
+
 		auto StartTime = std::chrono::high_resolution_clock::now();
 		switch (SimulationType)
 		{
@@ -304,7 +362,6 @@ public:
 			SimulationTypeString = "SIMD";
 			ComputeFractalSIMD(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
 			break;
-
 
 		case 2:
 			SimulationTypeString = "4 threads";
@@ -328,7 +385,7 @@ public:
 	}
 
 private:
-	olc::vd2d MouseStartPos;
+	olc::vd2d MouseStartPos = { 0 ,0 };
 	olc::vd2d Scale = { 1280.0 * 0.5 , 720.0 };
 	olc::vd2d OffSet = { 0.0 , 0.0 };
 
@@ -341,7 +398,7 @@ private:
 private:
 	 //stores the iteration counter for the fractal (purpose for colouring the fractal)
 	
-	std::vector<int> IterationStore;;
+	std::vector<int> IterationStore;
 	
 	 void WorldToScreen(const olc::vd2d& v, olc::vi2d &n)
 	 {
@@ -350,11 +407,66 @@ private:
 	 }
 
 	 // Convert coordinates from Screen Space --> World Space
-	 void ScreenToWorld(const olc::vi2d& n, olc::vd2d& v)
+	 void ScreenToWorld(const olc::vd2d& n, olc::vd2d& v)
 	 {
-		 v.x = (double)(n.x) / Scale.x + OffSet.x;
-		 v.y = (double)(n.y) / Scale.y + OffSet.y;
+		 v.x = (n.x) / Scale.x + OffSet.x;
+		 v.y = (n.y) / Scale.y + OffSet.y;
 	 }
+
+	
+	 /*threadpool method*/
+	  /*
+	 class ThreadPool
+	 {
+	 public:
+		 explicit ThreadPool(size_t numThreads) 
+		 {
+			 start(numThreads);
+		 };
+
+		 ~ThreadPool()
+		 {
+			 stop;
+		 }
+
+	 private:
+
+		 std::vector<std::thread> threads;
+		 std::condition_variable eventvar;
+		 std::mutex eventmutex;
+		 bool bStop = false;
+
+		 void start(size_t numThreads) {
+			 for (int i = 0; i < numThreads; ++i)
+			 {
+				 threads.emplace_back([=] {
+					 while (true)
+					 {
+						 std::unique_lock<std::mutex> m(eventmutex);
+					
+						 eventvar.wait(m, [=] {return bStop; });
+
+						 if (bStop) break; 
+					 }
+				 
+				 });
+			 }
+		 }
+
+		 void stop()
+		 {
+			 std::unique_lock<std::mutex> lock(eventmutex);
+			 bStop = true;
+			 eventvar.notify_all();
+
+			 for (auto& t : threads)
+			 {
+				 t.join();
+			 }
+		 }
+		
+	 };
+	 */
 };
 
 int main()
