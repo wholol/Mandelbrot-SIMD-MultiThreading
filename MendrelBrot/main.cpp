@@ -356,7 +356,6 @@ public:
 		
 		for (int i = 0; i < ThreadNumbers; ++i)
 		{
-
 			t1[i] = std::thread( &MendrelBrot::frac_precalc_SIMD,this,
 			olc::vd2d(ScreenTL.x + ScreenWidth * (i) , ScreenTL.y),			//SCREENTL
 			olc::vd2d(ScreenTL.x + ScreenWidth * (i + 1) , ScreenBR.y),			//SCREENBR
@@ -394,7 +393,6 @@ public:
 			pool.enqueue(std::move(t));
 
 		}
-		
 	}
 
 	void frac_async(olc::vd2d& ScreenTL, olc::vd2d& ScreenBR, olc::vd2d& FractalTL, olc::vd2d& FractalBR, int maxiterations)
@@ -412,7 +410,6 @@ public:
 				olc::vd2d(FractalTL.x + FractalWidth * (double)(i), FractalTL.y),		//FRACTALTL
 				olc::vd2d(FractalTL.x + FractalWidth * (double)(i + 1), FractalBR.y),	//FRACTALBR
 				maxiterations);
-
 		}
 	}
 
@@ -543,7 +540,7 @@ public:
 		DrawString(0, 0, "Simulation Type: " + SimulationTypeString, olc::BLACK, 3);
 		DrawString(0, 30, "Time Taken: " + std::to_string(TimeTaken.count()) + "s", olc::BLACK, 3);
 		DrawString(0, 60, "Iterations: " + std::to_string(maxiterations), olc::BLACK, 3);
-	
+		
 		return true;
 	}
 
@@ -603,8 +600,8 @@ private:
 							t = std::move(q.front());
 							
 							q.pop();
+							
 						}
-
 						t();
 					}
 
