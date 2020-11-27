@@ -8,3 +8,5 @@ SIMD
 multithreading and SIMD  
 threadpool and SIMD  
 std::async and SIMD  
+
+<img src="MendrelBrot/SIMD.png"> 
