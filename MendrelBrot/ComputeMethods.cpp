@@ -2,6 +2,7 @@
 #include <immintrin.h>
 #include <future>
 
+
 void frac_basic::compute(const olc::vd2d & ScreenTL, const olc::vd2d & ScreenBR, const olc::vd2d & FractalTL, const olc::vd2d & FractalBR, int maxiterations)
 {
 	double x_scale = (FractalBR.x - FractalTL.x) / (double(ScreenBR.x) - double(ScreenTL.x));
@@ -23,7 +24,7 @@ void frac_basic::compute(const olc::vd2d & ScreenTL, const olc::vd2d & ScreenBR,
 
 	for (int y = ScreenTL.y; y < ScreenBR.y; ++y)
 	{
-		y_pos = FractalTL.y;
+		x_pos = FractalTL.x;
 		ci = y_pos;
 		for (int x = ScreenTL.x; x < ScreenBR.x; ++x)
 		{
@@ -42,9 +43,9 @@ void frac_basic::compute(const olc::vd2d & ScreenTL, const olc::vd2d & ScreenBR,
 			}
 
 			iteration_vec[x + screenwidth * y] = n;
-			y_pos += y_scale;			//increment to the next position in fractal space.
+			x_pos += x_scale;				//increment to the next position in fractal space
 		}
-		x_pos += x_scale;				//increment to the next position in fractal space
+		y_pos += y_scale;			//increment to the next position in fractal space.
 	}
 }
 
@@ -59,12 +60,11 @@ void frac_basic_SIMD::compute(const olc::vd2d& ScreenTL, const olc::vd2d& Screen
 
 	//fractal top left vector
 	__m256d frac_tl_y_vec = _mm256_set1_pd(FractalTL.y);
-	__m256d frac_br_x_vec = _mm256_set1_pd(FractalTL.x);
+	__m256d frac_tl_x_vec = _mm256_set1_pd(FractalTL.x);
 
 	__m256d ci_vec, cr_vec, zi_vec, zr_vec, temp_vec;
 	__m256d zi_sq_vec;	//zi^2
 	__m256d zr_sq_vec;	//zr^2 
-
 	
 	__m256d cmp_cond_1; //vector to store comparison results.
 	__m256i cmp_cond_2; //vector to store comparison results.
@@ -74,7 +74,6 @@ void frac_basic_SIMD::compute(const olc::vd2d& ScreenTL, const olc::vd2d& Screen
 
 	__m256d z_mag_vec;		//magnitude for z
 	
-
 	//initialize constants
 	__m256d two = _mm256_set1_pd(2.0);		
 	__m256d four = _mm256_set1_pd(4.0);		
@@ -84,15 +83,18 @@ void frac_basic_SIMD::compute(const olc::vd2d& ScreenTL, const olc::vd2d& Screen
 
 	__m256d x_pos_vec = _mm256_set1_pd(FractalTL.x);
 	__m256d y_pos_vec = _mm256_set1_pd(FractalTL.y);
-	__m256d offset = _mm256_mul_pd(Pixels, scale_y_vec);	//convert pixel to fractal space
-	__m256d jmp = _mm256_mul_pd(four, scale_y_vec);			//to jump four pixels ahead
+	__m256d offset_x = _mm256_mul_pd(Pixels, scale_x_vec);	//convert pixel to fractal space
+	__m256d offset_y = _mm256_mul_pd(Pixels, scale_y_vec);
+	__m256d jmp = _mm256_mul_pd(four, scale_x_vec);			//to jump four pixels ahead
 
-												//for each pixel in screen space
+												
 	for (int y = (int)ScreenTL.y; y < (int)ScreenBR.y; ++y)
 	{
 		ci_vec = y_pos_vec;
-		x_pos_vec = _mm256_add_pd(x_pos_vec, scale_x_vec);
-		y_pos_vec = _mm256_add_pd(frac_tl_y_vec, offset);
+
+		y_pos_vec = _mm256_add_pd(y_pos_vec, scale_y_vec);
+		
+		x_pos_vec = _mm256_add_pd(frac_tl_x_vec, offset_x);		//reset x pos
 
 		for (int x = (int)ScreenTL.x; x < (int)ScreenBR.x; x += 4)
 		{
@@ -148,38 +150,40 @@ void frac_basic_SIMD::compute(const olc::vd2d& ScreenTL, const olc::vd2d& Screen
 			if ((n_vec.m256i_i64[0] == 0 && n_vec.m256i_i64[1] == 0 && n_vec.m256i_i64[2] == 0 && n_vec.m256i_i64[3] == 0))
 			{
 				iteration_vec[x + screenwidth * y] = int(store_n_vec.m256i_i64[3]);
-				iteration_vec[x + screenwidth * (y + 1)] = int(store_n_vec.m256i_i64[2]);
-				iteration_vec[x + screenwidth * (y + 2)] = int(store_n_vec.m256i_i64[1]);
-				iteration_vec[x + screenwidth * (y + 3)] = int(store_n_vec.m256i_i64[0]);
+				iteration_vec[(x + 1) + screenwidth * y] = int(store_n_vec.m256i_i64[2]);
+				iteration_vec[(x + 2) + screenwidth * y] = int(store_n_vec.m256i_i64[1]);
+				iteration_vec[(x + 3) + screenwidth * y] = int(store_n_vec.m256i_i64[0]);
 
-				x_pos_vec = _mm256_add_pd(jmp, x_pos_vec);
+				x_pos_vec = _mm256_add_pd(jmp, x_pos_vec);	//jump 4 pixels ahead
 			}
 
 			else {
 				goto repeat;
 			}
 		}
+		
 	}
 }
 
 void frac_multithread_SIMD::compute(const olc::vd2d & ScreenTL, const olc::vd2d & ScreenBR, const olc::vd2d & FractalTL, const olc::vd2d & FractalBR, int maxiterations)
 {
 	
-	std::thread t1[thread_num];
+	std::vector<std::thread> t1;
 
 	int ScreenWidth = (ScreenBR.x - ScreenTL.x) / thread_num;
 	double FractalWidth = (FractalBR.x - FractalTL.x) / double(thread_num);
+	
 
 	for (int i = 0; i < thread_num; ++i)
 	{
-		t1[i] = std::thread(&frac_basic_SIMD::compute, this,
+		t1.emplace_back(std::thread(&frac_basic_SIMD::compute, this,
 			olc::vd2d(ScreenTL.x + ScreenWidth * (i), ScreenTL.y),			//SCREENTL
 			olc::vd2d(ScreenTL.x + ScreenWidth * (i + 1), ScreenBR.y),			//SCREENBR
 			olc::vd2d(FractalTL.x + FractalWidth * (double)(i), FractalTL.y),		//FRACTALTL
 			olc::vd2d(FractalTL.x + FractalWidth * (double)(i + 1), FractalBR.y),	//FRACTALBR
-			maxiterations);
+			maxiterations));
 	}
-
+	
 	for (int i = 0; i < thread_num; ++i)
 	{
 		t1[i].join();
@@ -188,14 +192,14 @@ void frac_multithread_SIMD::compute(const olc::vd2d & ScreenTL, const olc::vd2d 
 
 void frac_threadpool_SIMD::compute(const olc::vd2d & ScreenTL, const olc::vd2d & ScreenBR, const olc::vd2d & FractalTL, const olc::vd2d & FractalBR, int maxiterations)
 {
-	int ScreenWidth = (ScreenBR.x - ScreenTL.x) / ThreadNumbers;
-	double FractalWidth = (FractalBR.x - FractalTL.x) / double(ThreadNumbers);
+	int ScreenWidth = (ScreenBR.x - ScreenTL.x) / thread_num;
+	double FractalWidth = (FractalBR.x - FractalTL.x) / double(thread_num);
 
-	//workers = 0;
+	pool.worker = 0;
 
 	using Task = std::packaged_task<void()>;
 
-	for (int i = 0; i < ThreadNumbers; ++i)
+	for (int i = 0; i < thread_num; ++i)
 	{
 		Task t = Task(std::bind(&frac_basic_SIMD::compute, this,
 			olc::vd2d(ScreenTL.x + ScreenWidth * (i), ScreenTL.y),			//SCREENTL
@@ -203,37 +207,39 @@ void frac_threadpool_SIMD::compute(const olc::vd2d & ScreenTL, const olc::vd2d &
 			olc::vd2d(FractalTL.x + FractalWidth * (double)(i), FractalTL.y),		//FRACTALTL
 			olc::vd2d(FractalTL.x + FractalWidth * (double)(i + 1), FractalBR.y),	//FRACTALBR
 			maxiterations));
-		//pool.enqueue(std::move(t));
-
+			pool.enqueue(std::move(t));
 	}
 
-	while (workers < thread_num) {}	//prevent screen tearing.
+	while (pool.worker < thread_num) {}	//prevent screen tearing.
 
 }
 
 void frac_async_SIMD::compute(const olc::vd2d & ScreenTL, const olc::vd2d & ScreenBR, const olc::vd2d & FractalTL, const olc::vd2d & FractalBR, int maxiterations)
 {
-	
 
-	int ScreenWidth = (ScreenBR.x - ScreenTL.x) / ThreadNumbers;
-	double FractalWidth = (FractalBR.x - FractalTL.x) / double(ThreadNumbers);
+	int ScreenWidth = (ScreenBR.x - ScreenTL.x) / thread_num;
+	double FractalWidth = (FractalBR.x - FractalTL.x) / double(thread_num);
 
-	std::vector<std::future<void>> fus;
+	std::vector<std::future<void>> futures;
 
 	for (int i = 0; i < thread_num; ++i) {
-
-		fus.push_back(std::async(std::launch::async, &frac_basic_SIMD::compute, this,
+		
+		futures.push_back(std::async(std::launch::async , &frac_basic_SIMD::compute, this,
 			olc::vd2d(ScreenTL.x + ScreenWidth * (i), ScreenTL.y),			//SCREENTL
 			olc::vd2d(ScreenTL.x + ScreenWidth * (i + 1), ScreenBR.y),			//SCREENBR
 			olc::vd2d(FractalTL.x + FractalWidth * (double)(i), FractalTL.y),		//FRACTALTL
 			olc::vd2d(FractalTL.x + FractalWidth * (double)(i + 1), FractalBR.y),	//FRACTALBR
 			maxiterations));
+		
 	}
 
-	for (auto& fu : fus)
+	for (auto& fu : futures)
 	{
 		fu.wait();
 	}
 }
 
-
+std::vector<int>& ComputeMethods::get_iteration_vec()
+{
+	return iteration_vec;
+}
