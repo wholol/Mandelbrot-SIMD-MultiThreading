@@ -10,6 +10,7 @@ public:
 	
 	std::atomic<int> worker;
 
+	ThreadPool();
 	
 	ThreadPool(int numThreads)
 	{

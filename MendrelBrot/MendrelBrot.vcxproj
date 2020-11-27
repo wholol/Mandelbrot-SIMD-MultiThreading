@@ -134,7 +134,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ComputeMethods.h" />
-    <ClInclude Include="ComputeMethodsFactory.h" />
     <ClInclude Include="olcPixelGameEngine.h" />
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="ThreadPool.h" />

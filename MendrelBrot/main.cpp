@@ -8,14 +8,15 @@
 #include <future>
 #include <deque>
 #include "ComputeMethods.h"
-#include "ComputeMethodsFactory.h"
 #include "Renderer.h"
+
 
 class MendrelBrot : public olc::PixelGameEngine
 {
 
 public:
 	MendrelBrot()
+		:m(std::thread::hardware_concurrency())
 	{
 		sAppName = "MendrelBrot";
 	};
@@ -24,6 +25,7 @@ public:
 
 	bool OnUserCreate() override
 	{	
+		m.set_screen_params(ScreenWidth(), ScreenHeight());	//LEAVE THIS HERE
 		
 		return true;
 	}
@@ -82,7 +84,7 @@ public:
 				maxiterations = 50;
 			}
 		}
-		
+
 		//top left and bottom right of screenspace
 		olc::vd2d ScreenTL = { 0 , 0 };
 		olc::vd2d ScreenBR = { 1280, 720 };
@@ -95,58 +97,85 @@ public:
 		ScreenToWorld(ScreenTL, FractalTL);
 		ScreenToWorld(ScreenBR, FractalBR);
 
-		/*generate factory here (use 1 , 2 ,3 ,4, 5, 6)*/
 		if ((GetKey(olc::Key::K1).bPressed)) {
-			curr_type = 1;
-			method = std::move(ComputeMethodsFactory::create(ScreenHeight(), ScreenWidth(), std::thread::hardware_concurrency(), curr_type));
+			type = "normal algorithm";
 		}
 
 		if ((GetKey(olc::Key::K2).bPressed)) {
-			curr_type = 2;
-			method = std::move(ComputeMethodsFactory::create(ScreenHeight(), ScreenWidth(), std::thread::hardware_concurrency(), curr_type));
+			type = "SIMD";
 		}
 
-		if (1) {
-			curr_type = 3;
-			method = std::move(ComputeMethodsFactory::create(ScreenHeight(), ScreenWidth(), std::thread::hardware_concurrency(), curr_type));
+		if ((GetKey(olc::Key::K3).bPressed)) {
+			type = "multithreaded + SIMD";
 		}
 
 		if ((GetKey(olc::Key::K4).bPressed)) {
-		
-			curr_type = 4;
-			method = std::move(ComputeMethodsFactory::create(ScreenHeight(), ScreenWidth(), std::thread::hardware_concurrency(), curr_type));
+			type = "threadpool + SIMD";
 		}
 
 		if ((GetKey(olc::Key::K5).bPressed)) {
+			type = "std::async + SIMD";
+		}
+
+			if (type == "normal algorithm")
+			{
+				auto start = std::chrono::high_resolution_clock::now();
+				m.frac_basic(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
+				auto end = std::chrono::high_resolution_clock::now();
+				dt = end - start;
+			}
 			
-			curr_type = 5;
-			method = std::move(ComputeMethodsFactory::create(ScreenHeight(), ScreenWidth(), std::thread::hardware_concurrency(), curr_type));
-		}
+			else if (type =="SIMD")
+			{
+				auto start = std::chrono::high_resolution_clock::now();
+				m.frac_SIMD(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
+				auto end = std::chrono::high_resolution_clock::now();
+				dt = end - start;
 
-		/*benchmark here (call compute)*/
-		if (method) {
-			auto start = std::chrono::high_resolution_clock::now();
-			method->compute(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
-			auto end = std::chrono::high_resolution_clock::now();
-			dt = end - start;
+			}
 
+			else if (type == "multithreaded + SIMD")
+			{
+				auto start = std::chrono::high_resolution_clock::now();
+				m.frac_multithread(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
+				auto end = std::chrono::high_resolution_clock::now();
+				dt = end - start;
+
+			}
+
+			else if (type == "threadpool + SIMD")
+			{
+				auto start = std::chrono::high_resolution_clock::now();
+				m.frac_threadpool(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
+				auto end = std::chrono::high_resolution_clock::now();
+				dt = end - start;
+
+			}
+
+			else if (type == "std::async + SIMD")
+			{
+				auto start = std::chrono::high_resolution_clock::now();
+				m.frac_async(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
+				auto end = std::chrono::high_resolution_clock::now();
+				dt = end - start;
+			}
 			/*render*/
-			method = std::move(render.RenderFractal(std::move(method), ScreenWidth(), ScreenHeight(), *this));
-			render.RenderUI(*this, dt, std::to_string(curr_type), maxiterations);
-		}
-
+			render.RenderFractal(m, ScreenWidth(), ScreenHeight(), this);
+			render.RenderUI(this, dt,type, maxiterations);
+		
+		
 		return true;
 	}
 
-
 private:
-	std::unique_ptr<ComputeMethods> method;
+	ComputeMethods m;
 	Renderer render;
+	std::string type = "normal algorithm";
 	olc::vd2d MouseStartPos = { 0 ,0 };
 	olc::vd2d Scale = { 1280.0 * 0.5 , 720.0 };
 	olc::vd2d OffSet = { 0.0 , 0.0 };
 
-	int curr_type;
+	
 	
 	std::chrono::duration<double> dt;
 
