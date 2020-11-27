@@ -2,12 +2,16 @@
 #include "olcPixelGameEngine.h"
 #include <immintrin.h>
 #include <thread>
-#include <functional>
 #include <condition_variable>
 #include <mutex>
 #include <queue>
-#include <utility>
 #include <future>
+#include <deque>
+#include <concurrent_vector.h>
+
+static std::atomic<int> workers = 0;
+
+
 
 class MendrelBrot : public olc::PixelGameEngine
 {
@@ -16,35 +20,32 @@ public:
 	MendrelBrot()
 	{
 		sAppName = "MendrelBrot";
-	}
+	};
 
 public:
 
 	bool OnUserCreate() override
 	{	
-		IterationStore.reserve(ScreenHeight() * ScreenWidth());
+		
+		iteration_vec.reserve(ScreenHeight() * ScreenWidth());
 		for (int i = 0; i < ScreenHeight() * ScreenWidth(); ++i)
 		{
-			IterationStore.emplace_back(0);
+			iteration_vec.emplace_back(0);
 		}
-
-		//init threadpool
-
 		return true;
 	}
 
-	void frac_precalc(const olc::vi2d& pix_tl, const olc::vi2d& pix_br, const olc::vd2d& frac_tl, const olc::vd2d& frac_br, const int iterations)
+	void frac_precalc(const olc::vi2d& ScreenTL, const olc::vi2d& ScreenBR, const olc::vd2d& FractalTL, const olc::vd2d& FractalBR, const int iterations)
 	{
-		double x_scale = (frac_br.x - frac_tl.x) / (double(pix_br.x) - double(pix_tl.x));
-		double y_scale = (frac_br.y - frac_tl.y) / (double(pix_br.y) - double(pix_tl.y));
+		double x_scale = (FractalBR.x - FractalTL.x) / (double(ScreenBR.x) - double(ScreenTL.x));
+		double y_scale = (FractalBR.y - FractalTL.y) / (double(ScreenBR.y) - double(ScreenTL.y));
 
-		double x_pos = frac_tl.x;
-		double y_pos = frac_tl.y;
+		double x_pos = FractalTL.x;
+		double y_pos = FractalTL.y;
 
-		int y_offset = 0;
 		int row_size = ScreenWidth();
 
-		int x, y, n;
+		int n;		//iteration counter
 
 		double cr = 0;
 		double ci = 0;
@@ -53,35 +54,35 @@ public:
 		double re = 0;
 		double im = 0;
 
-		for (x = pix_tl.x; x < pix_br.x; x++)
+		for (int y = ScreenTL.y; y < ScreenBR.y; ++y)
 		{
-			y_pos = frac_tl.y;
-			cr = x_pos;
-			for (y = pix_tl.y; y < pix_br.y; y++)
+			y_pos = FractalTL.y;
+			ci = y_pos;
+			for (int x = ScreenTL.x; x < ScreenBR.x; ++x)
 			{
-				ci = y_pos;
+				cr = x_pos;
 				zr = 0;
 				zi = 0;
-
 				n = 0;
-				while ((zr * zr + zi * zi) < 4.0 && n < iterations)
+
+				while ((zr * zr + zi * zi) < 4.0 && n < maxiterations)
 				{
 					re = zr * zr - zi * zi + cr;
 					im = zr * zi * 2.0 + ci;
 					zr = re;
 					zi = im;
-					n++;
+					++n;
 				}
 
-				IterationStore[x + ScreenWidth() * y] = n;
-				y_pos += y_scale;
+				iteration_vec[x + ScreenWidth() * y] = n;
+				y_pos += y_scale;			//increment to the next position in fractal space.
 			}
-
-			x_pos += x_scale;
+			x_pos += x_scale;				//increment to the next position in fractal space
 		}
 	}
 
 	//algorithm with SIMD (pre calculate version)
+	
 	void frac_precalc_SIMD(const olc::vd2d& ScreenTL, const olc::vd2d& ScreenBR, const olc::vd2d& FractalTL, const olc::vd2d& FractalBR, int maxiterations)
 	{
 		const double ScaleX = (FractalTL.x - FractalBR.x) / (ScreenTL.x - ScreenBR.x);
@@ -98,7 +99,7 @@ public:
 		__m256d CImVector, CReVector, ZImVector, ZReVector, ZTempVector;
 		__m256d ZImSquared, ZReSquared;
 
-		/*vector to store comparison results.*/
+		//vector to store comparison results.
 		__m256d cmp_cond_1;
 		__m256i cmp_cond_2;
 		__m256i CounterVector;		
@@ -106,7 +107,7 @@ public:
 		__m256d ZMagnitude;	
 		__m256i IterationVector;
 
-		/*initialize constants*/
+		//initialize constants
 		__m256d two = _mm256_set1_pd(2.0);		//for computing fractal
 		__m256d four = _mm256_set1_pd(4.0);		//to check while loop condition.
 		__m256i one = _mm256_set1_epi64x(1);
@@ -130,7 +131,7 @@ public:
 				
 				CImVector = YPos;
 				
-				/*initilaize Z Vector*/
+				//initilaize Z Vector
 				//double ZReal = 0.0;
 				ZReVector = _mm256_set1_pd(0.0);
 				//double ZIm = 0.0;
@@ -140,16 +141,16 @@ public:
 				IterationVector = _mm256_set1_epi64x(0);
 
 				repeat:
-					/*F(Z) = Z^2  + C*/
+					//F(Z) = Z^2  + C
 					//double ZTemp = (ZReal * ZReal) - (ZIm * ZIm) + CReal;
 					//Z real squared and Z im squared vecotr
 					ZReSquared = _mm256_mul_pd(ZReVector, ZReVector);
 					ZImSquared = _mm256_mul_pd(ZImVector, ZImVector);
 
-					/*Zre^2 + Zim^2*/
+					//Zre^2 + Zim^2
 					ZMagnitude = _mm256_add_pd(ZReSquared, ZImSquared);
 
-					/*Zre^2 + Zim^2 < 4.0*/
+					//Zre^2 + Zim^2 < 4.0
 					cmp_cond_1 = _mm256_cmp_pd(ZMagnitude, four, _CMP_LT_OQ);
 
 					ZTempVector = _mm256_mul_pd(ZReVector, ZReVector);
@@ -163,25 +164,25 @@ public:
 					//ZReal = ZTemp;
 					ZReVector = ZTempVector;
 
-					/*maxiterations > \iterations*/
+					//maxiterations > \iterations
 					cmp_cond_2 = _mm256_cmpgt_epi64(maxiterationsVector, IterationVector);
 
-					/*condition1 && condition 2*/
+					//condition1 && condition 2
 					cmp_cond_2 = _mm256_and_si256(cmp_cond_2, _mm256_castpd_si256(cmp_cond_1));
 
-					/*increment iteration ONLY IF the condition for a pixel is true*/
+					//increment iteration ONLY IF the condition for a pixel is true
 					CounterVector = _mm256_and_si256(cmp_cond_2, one);
 
-					/*add 1 to the iteration counter*/
+					//add 1 to the iteration counter
 					//++iteration_counter;
 					IterationVector = _mm256_add_epi64(IterationVector, CounterVector);
 
 					if ((CounterVector.m256i_i64[0] == 0 && CounterVector.m256i_i64[1] == 0 && CounterVector.m256i_i64[2] == 0 && CounterVector.m256i_i64[3] == 0))
 					{
-						IterationStore[x + ScreenWidth() * y] = int(IterationVector.m256i_i64[3]);
-						IterationStore[x + ScreenWidth() * (y + 1)] = int(IterationVector.m256i_i64[2]);
-						IterationStore[x + ScreenWidth() * (y + 2)] = int(IterationVector.m256i_i64[1]);
-						IterationStore[x + ScreenWidth() * (y + 3)] = int(IterationVector.m256i_i64[0]);
+						iteration_vec[x + ScreenWidth() * y] = int(IterationVector.m256i_i64[3]);
+						iteration_vec[x + ScreenWidth() * (y + 1)] = int(IterationVector.m256i_i64[2]);
+						iteration_vec[x + ScreenWidth() * (y + 2)] = int(IterationVector.m256i_i64[1]);
+						iteration_vec[x + ScreenWidth() * (y + 3)] = int(IterationVector.m256i_i64[0]);
 						YPos = _mm256_add_pd(jmp, YPos);
 					}
 
@@ -191,6 +192,7 @@ public:
 			}
 		}
 	}
+	
 
 	//normal algorithm
 	void frac_basic(const olc::vd2d& ScreenTL, const olc::vd2d& ScreenBR, const olc::vd2d& FractalTL, const olc::vd2d& FractalBR, int maxiterations)
@@ -222,11 +224,12 @@ public:
 					++iteration_counter;
 				}
 
-				IterationStore[x + ScreenWidth()* y] = iteration_counter;
+				iteration_vec[x + ScreenWidth()* y] = iteration_counter;
 	
 			}
 		}
 	}
+
 
 	//algorithm with SIMD
 	void frac_basic_SIMD(const olc::vd2d& ScreenTL, const olc::vd2d& ScreenBR, const olc::vd2d& FractalTL, const olc::vd2d& FractalBR, int maxiterations)
@@ -331,10 +334,10 @@ public:
 
 					if ((CounterVector.m256i_i64[0] == 0 && CounterVector.m256i_i64[1] == 0 && CounterVector.m256i_i64[2] == 0 && CounterVector.m256i_i64[3] == 0))
 					{
-						IterationStore[x + ScreenWidth() * y] = int(IterationVector.m256i_i64[3]);
-						IterationStore[x + ScreenWidth() * (y + 1)] = int(IterationVector.m256i_i64[2]);
-						IterationStore[x + ScreenWidth() * (y + 2)] = int(IterationVector.m256i_i64[1]);
-						IterationStore[x + ScreenWidth() * (y + 3)] = int(IterationVector.m256i_i64[0]);
+						iteration_vec[x + ScreenWidth() * y] = int(IterationVector.m256i_i64[3]);
+						iteration_vec[x + ScreenWidth() * (y + 1)] = int(IterationVector.m256i_i64[2]);
+						iteration_vec[x + ScreenWidth() * (y + 2)] = int(IterationVector.m256i_i64[1]);
+						iteration_vec[x + ScreenWidth() * (y + 3)] = int(IterationVector.m256i_i64[0]);
 					}
 
 					else {
@@ -348,7 +351,6 @@ public:
 	void frac_multithread(olc::vd2d& ScreenTL, olc::vd2d& ScreenBR, olc::vd2d& FractalTL, olc::vd2d& FractalBR, int maxiterations)
 	{
 		static constexpr uint8_t ThreadNumbers = 32;	//use std::thread::hardware_concurrency() to determine max threads.
-		
 		std::thread t1[ThreadNumbers];		
 
 		int ScreenWidth = (ScreenBR.x - ScreenTL.x) / ThreadNumbers;
@@ -370,46 +372,89 @@ public:
 		}
 	}
 
+	class testSIMD {
+
+	public:
+
+		testSIMD() {};
+
+		testSIMD(olc::vd2d ScreenTL, olc::vd2d ScreenBR, olc::vd2d FractalTL, olc::vd2d FractalBR, int maxiterations, MendrelBrot* m)
+			:ScreenTL(ScreenTL), ScreenBR(ScreenBR), FractalTL(FractalTL), FractalBR(FractalBR), maxiterations(maxiterations), m(m) {}
+
+		void execute() {
+
+			m->frac_precalc_SIMD(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
+		}
+
+	private:
+		olc::vd2d ScreenTL;
+		olc::vd2d ScreenBR;
+		olc::vd2d FractalTL;
+		olc::vd2d FractalBR;
+		MendrelBrot* m;
+		int maxiterations;
+	};
+
+	testSIMD test[32];
+
+	using Task = std::packaged_task<void()>;
+	Task t[32];
 
 	void frac_threadpool(olc::vd2d& ScreenTL, olc::vd2d& ScreenBR, olc::vd2d& FractalTL, olc::vd2d& FractalBR, int maxiterations)
 	{
-		 uint8_t ThreadNumbers = std::thread::hardware_concurrency();	//use std::thread::hardware_concurrency() to determine max threads.
-
+		 uint8_t ThreadNumbers = 32;	//use std::thread::hardware_concurrency() to determine max threads.
 		int ScreenWidth = (ScreenBR.x - ScreenTL.x) / ThreadNumbers;
 		double FractalWidth = (FractalBR.x - FractalTL.x) / double(ThreadNumbers);
 		
+		workers = 0;
+	/*
 		for (int i = 0; i < ThreadNumbers; ++i)
 		{
-	
-			using Task = std::packaged_task<void()>;
+			test[i] = testSIMD(olc::vd2d(ScreenTL.x + ScreenWidth * (i), ScreenTL.y),			//SCREENTL
+				olc::vd2d(ScreenTL.x + ScreenWidth * (i + 1), ScreenBR.y),			//SCREENBR
+				olc::vd2d(FractalTL.x + FractalWidth * (double)(i), FractalTL.y),		//FRACTALTL
+				olc::vd2d(FractalTL.x + FractalWidth * (double)(i + 1), FractalBR.y),	//FRACTALBR
+				maxiterations,this);
 
-			Task t(std::bind(&MendrelBrot::frac_precalc_SIMD, this,
+				pool.enqueue(test[i]);
+		}*/
+
+		for (int i = 0; i < ThreadNumbers; ++i)
+		{
+			t[i] = Task(std::bind(&MendrelBrot::frac_precalc_SIMD, this,
 				olc::vd2d(ScreenTL.x + ScreenWidth * (i), ScreenTL.y),			//SCREENTL
 				olc::vd2d(ScreenTL.x + ScreenWidth * (i + 1), ScreenBR.y),			//SCREENBR
 				olc::vd2d(FractalTL.x + FractalWidth * (double)(i), FractalTL.y),		//FRACTALTL
 				olc::vd2d(FractalTL.x + FractalWidth * (double)(i + 1), FractalBR.y),	//FRACTALBR
 				maxiterations));
+			pool.enqueue(std::move(t[i]));
 			
-			pool.enqueue(std::move(t));
-
 		}
+
+		while (workers < ThreadNumbers) {}	//prevent screen tearing.
 	}
 
 	void frac_async(olc::vd2d& ScreenTL, olc::vd2d& ScreenBR, olc::vd2d& FractalTL, olc::vd2d& FractalBR, int maxiterations)
 	{
-		uint8_t ThreadNumbers = std::thread::hardware_concurrency();	//use std::thread::hardware_concurrency() to determine max threads.
+		uint8_t ThreadNumbers = 32;	//use std::thread::hardware_concurrency() to determine max threads.
 
 		int ScreenWidth = (ScreenBR.x - ScreenTL.x) / ThreadNumbers;
 		double FractalWidth = (FractalBR.x - FractalTL.x) / double(ThreadNumbers);
-
+	
+		std::vector<std::future<void>> fus;
 		for (int i = 0; i < ThreadNumbers; ++i) {
 			
-			std::future<void> v = std::async(std::launch::async, &MendrelBrot::frac_precalc_SIMD, this,
+			fus.push_back(std::async(std::launch::async, &MendrelBrot::frac_precalc_SIMD, this,
 				olc::vd2d(ScreenTL.x + ScreenWidth * (i), ScreenTL.y),			//SCREENTL
 				olc::vd2d(ScreenTL.x + ScreenWidth * (i + 1), ScreenBR.y),			//SCREENBR
 				olc::vd2d(FractalTL.x + FractalWidth * (double)(i), FractalTL.y),		//FRACTALTL
 				olc::vd2d(FractalTL.x + FractalWidth * (double)(i + 1), FractalBR.y),	//FRACTALBR
-				maxiterations);
+				maxiterations));
+		}
+
+		for (auto& fu : fus)
+		{
+			fu.wait();
 		}
 	}
 
@@ -420,7 +465,7 @@ public:
 		{
 			for (int y = 0; y < ScreenHeight(); ++y)
 			{
-				float n = (float)IterationStore[x + ScreenWidth() * y];
+				float n = (float)iteration_vec[x + ScreenWidth() * y];
 				static constexpr float a = 0.1f;
 				Draw(x, y, olc::PixelF(0.5f * sinf(a * n) + 0.5f, 0.5f * sinf(a * n + 2.094f) + 0.5f, 0.5f * sinf(a * n + 4.188f) + 0.5f));
 			}
@@ -544,12 +589,15 @@ public:
 		return true;
 	}
 
-
+	
 private:
+
+
 	/*threadpool method*/
 	class ThreadPool
 	{
 	public:
+		
 		ThreadPool(int numThreads)
 		{
 			start(numThreads);
@@ -560,26 +608,26 @@ private:
 			stop();
 		}
 
-		using Task = std::packaged_task<void()>;
-
 		
 		void enqueue(Task task)
 		{
+			
 			{
 				//get lock, unlocks when it goes out of scope
 				std::unique_lock<std::mutex> m(eventmutex);
-				q.emplace(std::move(task));
+				q.push_back(std::move(task));
 			}
 
 			eventvar.notify_one();
 		}
 
 	private:
-
+		
 		std::vector<std::thread> threads;
 		std::condition_variable eventvar;
 		std::mutex eventmutex;
-		std::queue<Task> q;
+		std::mutex count;
+		std::deque<Task> q;
 		bool bStop = false;
 
 		void start(int numThreads) {
@@ -589,7 +637,7 @@ private:
 					while (true)
 					{
 						Task t;
-
+						
 						{
 							std::unique_lock<std::mutex> m(eventmutex);
 
@@ -598,11 +646,12 @@ private:
 							if (bStop && q.empty()) break;
 
 							t = std::move(q.front());
-							
-							q.pop();
-							
+
+							q.pop_front();
+
 						}
 						t();
+						workers++;
 					}
 
 				});
@@ -621,12 +670,11 @@ private:
 				t.join();
 			}
 		}
-
 	};
 
 private:
 	
-	ThreadPool pool = ThreadPool(std::thread::hardware_concurrency());
+	ThreadPool pool = ThreadPool(32);
 	olc::vd2d MouseStartPos = { 0 ,0 };
 	olc::vd2d Scale = { 1280.0 * 0.5 , 720.0 };
 	olc::vd2d OffSet = { 0.0 , 0.0 };
@@ -638,7 +686,8 @@ private:
 	int maxiterations = 50;
 	 //stores the iteration counter for the fractal (purpose for colouring the fractal)
 	
-	std::vector<int> IterationStore;
+	std::vector<int> iteration_vec;
+	
 	
 	 void WorldToScreen(const olc::vd2d& v, olc::vi2d &n)
 	 {
@@ -652,8 +701,6 @@ private:
 		 v.x = (n.x) / Scale.x + OffSet.x;
 		 v.y = (n.y) / Scale.y + OffSet.y;
 	 }
-
-
 };
 
 int main()
@@ -665,3 +712,5 @@ int main()
 	}
 	return 0;
 }
+
+
