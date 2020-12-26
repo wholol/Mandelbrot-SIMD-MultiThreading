@@ -1,7 +1,7 @@
 #include "ComputeMethods.h"
 #include <immintrin.h>
 #include <future>
-
+#include <omp.h>
 
 
 ComputeMethods::ComputeMethods(int thread_num)
@@ -258,3 +258,4 @@ std::vector<int>& ComputeMethods::get_iteration_vec()
 {
 	return iteration_vec;
 }
+

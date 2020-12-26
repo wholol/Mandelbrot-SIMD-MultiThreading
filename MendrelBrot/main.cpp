@@ -1,14 +1,8 @@
 ﻿#define OLC_PGE_APPLICATION
 #include "olcPixelGameEngine.h"
-#include <immintrin.h>
-#include <thread>
-#include <condition_variable>
-#include <mutex>
-#include <queue>
-#include <future>
-#include <deque>
 #include "ComputeMethods.h"
 #include "Renderer.h"
+#include <fstream>
 
 
 class MendrelBrot : public olc::PixelGameEngine
@@ -74,10 +68,15 @@ public:
 		if (GetKey(olc::Key::UP).bPressed)
 		{
 			maxiterations += 100;
+			timesamples = 0;
+			sample = false;
 		}
+
 		if (GetKey(olc::Key::DOWN).bPressed)
 		{
-			
+			timesamples = 0;
+			sample = false;
+
 			maxiterations -= 100;
 			if (maxiterations <= 50)
 			{
@@ -99,22 +98,39 @@ public:
 
 		if ((GetKey(olc::Key::K1).bPressed)) {
 			type = "normal algorithm";
+			timesamples = 0;
+			sample = false;
 		}
 
 		if ((GetKey(olc::Key::K2).bPressed)) {
 			type = "SIMD";
+			timesamples = 0;
+			sample = false;
 		}
 
 		if ((GetKey(olc::Key::K3).bPressed)) {
 			type = "multithreaded + SIMD";
+			timesamples = 0;
+			sample = false;
 		}
 
 		if ((GetKey(olc::Key::K4).bPressed)) {
 			type = "threadpool + SIMD";
+			timesamples = 0;
+			sample = false;
 		}
 
 		if ((GetKey(olc::Key::K5).bPressed)) {
 			type = "std::async + SIMD";
+			timesamples = 0;
+			sample = false;
+		}
+
+		if ((GetKey(olc::Key::S).bPressed)) {
+			if (!sample) {
+				sample = true;
+				myFile << type << "," << maxiterations << '\n';
+			}
 		}
 
 			if (type == "normal algorithm")
@@ -131,7 +147,6 @@ public:
 				m.frac_SIMD(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
 				auto end = std::chrono::high_resolution_clock::now();
 				dt = end - start;
-
 			}
 
 			else if (type == "multithreaded + SIMD")
@@ -140,7 +155,6 @@ public:
 				m.frac_multithread(ScreenTL, ScreenBR, FractalTL, FractalBR, maxiterations);
 				auto end = std::chrono::high_resolution_clock::now();
 				dt = end - start;
-
 			}
 
 			else if (type == "threadpool + SIMD")
@@ -159,24 +173,42 @@ public:
 				auto end = std::chrono::high_resolution_clock::now();
 				dt = end - start;
 			}
+
 			/*render*/
-			render.RenderFractal(m, ScreenWidth(), ScreenHeight(), this);
-			render.RenderUI(this, dt,type, maxiterations);
-		
-		
+			Renderer::RenderFractal(m, ScreenWidth(), ScreenHeight(), this);
+			Renderer::RenderUI(this, dt,type, maxiterations,timesamples,maxsamples);
+
+			if (sample) {
+				/*log data*/
+				if (timesamples < maxsamples) {
+					totaltime += dt.count();
+					timesamples += 1;
+				}
+				else {
+					totaltime /= maxsamples;
+					if (totaltime != 0) {
+						myFile << totaltime <<  "," << maxiterations << '\n';
+					}
+					totaltime = 0;
+				}
+				
+			}
+			
 		return true;
 	}
 
 private:
 	ComputeMethods m;
-	Renderer render;
+	
 	std::string type = "normal algorithm";
 	olc::vd2d MouseStartPos = { 0 ,0 };
 	olc::vd2d Scale = { 1280.0 * 0.5 , 720.0 };
 	olc::vd2d OffSet = { 0.0 , 0.0 };
-
-	
-	
+	std::ofstream myFile = std::ofstream("benchmark.csv");
+	bool sample = false;
+	int timesamples = 0; 
+	static constexpr int maxsamples = 5;
+	double totaltime = 0;
 	std::chrono::duration<double> dt;
 
 

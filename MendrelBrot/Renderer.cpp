@@ -16,9 +16,15 @@ void Renderer::RenderFractal(ComputeMethods& method, int screenwidth, int screen
 
 
 
-void Renderer::RenderUI(olc::PixelGameEngine* engine, std::chrono::duration<double>& dt, const std::string& simulation_type,int maxiterations)
+void Renderer::RenderUI(olc::PixelGameEngine* engine, std::chrono::duration<double>& dt, const std::string& simulation_type,int maxiterations,int timesamples, int maxsamples)
 {
-	
+	if (timesamples < maxsamples)
+	{
+		engine->DrawString(0, 90, "Sampling data for plotting..: " + std::to_string(timesamples), olc::BLACK, 3);
+	}
+	else {
+		engine->DrawString(0, 90, "Sampling complete!" , olc::BLACK, 3);
+	}
 	engine->DrawString(0, 0, "Simulation Type: " + simulation_type , olc::BLACK, 3);
 	engine->DrawString(0, 30, "Time Taken: " + std::to_string(dt.count()) + "s", olc::BLACK, 3);
 	engine->DrawString(0, 60, "Iterations: " + std::to_string(maxiterations), olc::BLACK, 3);
