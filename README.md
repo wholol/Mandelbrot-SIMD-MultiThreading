@@ -10,3 +10,9 @@ threadpool and SIMD
 std::async and SIMD  
 
 <img src="MendrelBrot/SIMD.png"> 
+
+## Benchmark Results
+CPU : intel i7-7700 HQ (4 cores 8 threads)  
+This benchmark is roughly the whole Mandrelbot set. In reality, the set can be zoomed in and out which will cause different results, dpeending on the region. Overall, the threadpool and std::async was the fastest, with minimal differences.  
+  
+<img src="MendrelBrot/benchmark.png"> 
