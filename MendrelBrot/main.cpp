@@ -10,7 +10,7 @@ class MendrelBrot : public olc::PixelGameEngine
 
 public:
 	MendrelBrot()
-		:m(std::thread::hardware_concurrency())
+		:m(std::thread::hardware_concurrency() , numtasks)
 	{
 		sAppName = "MendrelBrot";
 	};
@@ -86,11 +86,11 @@ public:
 
 		//top left and bottom right of screenspace
 		olc::vd2d ScreenTL = { 0 , 0 };
-		olc::vd2d ScreenBR = { 1280, 720 };
+		olc::vd2d ScreenBR = { 1280, 1040 };
 
 		//top elft and bottom right of mendrelbrot space
-		olc::vd2d FractalTL = { 0.0f , 0.0f };
-		olc::vd2d FractalBR = { 3.0f , 2.0f };
+		olc::vd2d FractalTL = { -2.0f , 1.0f };
+		olc::vd2d FractalBR = { 1.0f , -1.0f };
 
 		/*map the screen space to world space*/
 		ScreenToWorld(ScreenTL, FractalTL);
@@ -179,7 +179,7 @@ public:
 			Renderer::RenderUI(this, dt,type, maxiterations,timesamples,maxsamples);
 
 			if (sample) {
-				/*log data*/
+				//log data to a csv file
 				if (timesamples < maxsamples) {
 					totaltime += dt.count();
 					timesamples += 1;
@@ -198,11 +198,13 @@ public:
 	}
 
 private:
+	int numtasks = 640;
 	ComputeMethods m;
+	
 	
 	std::string type = "normal algorithm";
 	olc::vd2d MouseStartPos = { 0 ,0 };
-	olc::vd2d Scale = { 1280.0 * 0.5 , 720.0 };
+	olc::vd2d Scale = { 1280.0 * 0.5 , 1040 };
 	olc::vd2d OffSet = { 0.0 , 0.0 };
 	std::ofstream myFile = std::ofstream("benchmark.csv");
 	bool sample = false;
@@ -232,7 +234,7 @@ private:
 int main()
 {
 	MendrelBrot demo;
-	if (demo.Construct(1280, 720, 1, 1))
+	if (demo.Construct(1280, 1040, 1, 1))
 	{
 		demo.Start();
 	}

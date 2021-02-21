@@ -7,7 +7,7 @@
 class ComputeMethods
 {
 public:
-	ComputeMethods(int thread_num);
+	ComputeMethods(int thread_num , int numtasks);
 	void set_screen_params(int screenwidth, int screenheight);		//MUST CALL THIS FUNCTION TO WORK
 	void frac_basic(const olc::vd2d& ScreenTL, const olc::vd2d& ScreenBR, const olc::vd2d& FractalTL, const olc::vd2d& FractalBR, int maxiterations);
 	void frac_SIMD(const olc::vd2d& ScreenTL, const olc::vd2d& ScreenBR, const olc::vd2d& FractalTL, const olc::vd2d& FractalBR, int maxiterations);
@@ -17,9 +17,10 @@ public:
 	std::vector<int>& get_iteration_vec();
 
 private:
-	int screenwidth, screenheight, thread_num;
+	int screenwidth, screenheight;
 	std::vector<int> iteration_vec;
 	ThreadPool pool;
+	int numtasks;
 };
 
 

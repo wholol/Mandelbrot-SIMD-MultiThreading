@@ -4,8 +4,8 @@
 #include <omp.h>
 
 
-ComputeMethods::ComputeMethods(int thread_num)
-	:thread_num(thread_num) , pool(thread_num)
+ComputeMethods::ComputeMethods(int thread_num , int numtasks)
+	: pool(thread_num) , numtasks(numtasks)
 {}
 
 
@@ -187,10 +187,10 @@ void ComputeMethods::frac_multithread(const olc::vd2d & ScreenTL, const olc::vd2
 {
 	std::vector<std::thread> t1;
 
-	int ScreenWidth = (ScreenBR.x - ScreenTL.x) / thread_num;
-	double FractalWidth = (FractalBR.x - FractalTL.x) / double(thread_num);
+	int ScreenWidth = (ScreenBR.x - ScreenTL.x) / numtasks;
+	double FractalWidth = (FractalBR.x - FractalTL.x) / double(numtasks);
 
-	for (int i = 0; i < thread_num; ++i)
+	for (int i = 0; i < numtasks; ++i)
 	{
 		t1.emplace_back(std::thread(&ComputeMethods::frac_SIMD, this,
 			olc::vd2d(ScreenTL.x + ScreenWidth * (i), ScreenTL.y),			//SCREENTL
@@ -200,7 +200,7 @@ void ComputeMethods::frac_multithread(const olc::vd2d & ScreenTL, const olc::vd2
 			maxiterations));
 	}
 
-	for (int i = 0; i < thread_num; ++i)
+	for (int i = 0; i < numtasks; ++i)
 	{
 		t1[i].join();
 	}
@@ -208,16 +208,16 @@ void ComputeMethods::frac_multithread(const olc::vd2d & ScreenTL, const olc::vd2
 
 void ComputeMethods::frac_threadpool(const olc::vd2d & ScreenTL, const olc::vd2d & ScreenBR, const olc::vd2d & FractalTL, const olc::vd2d & FractalBR, int maxiterations)
 {
-	int ScreenWidth = (ScreenBR.x - ScreenTL.x) / thread_num;
-	double FractalWidth = (FractalBR.x - FractalTL.x) / double(thread_num);
+	int ScreenWidth = (ScreenBR.x - ScreenTL.x) / numtasks;
+	double FractalWidth = (FractalBR.x - FractalTL.x) / double(numtasks);
 
 	pool.worker = 0;
 
 	using Task = std::packaged_task<void()>;
 
-	for (int i = 0; i < thread_num; ++i)
+	for (int i = 0; i < numtasks; ++i)
 	{
-		Task t = Task(std::bind(&ComputeMethods::frac_SIMD, this,
+		Task t = Task(std::bind(&ComputeMethods::frac_basic, this,
 			olc::vd2d(ScreenTL.x + ScreenWidth * (i), ScreenTL.y),			//SCREENTL
 			olc::vd2d(ScreenTL.x + ScreenWidth * (i + 1), ScreenBR.y),			//SCREENBR
 			olc::vd2d(FractalTL.x + FractalWidth * (double)(i), FractalTL.y),		//FRACTALTL
@@ -226,18 +226,18 @@ void ComputeMethods::frac_threadpool(const olc::vd2d & ScreenTL, const olc::vd2d
 		pool.enqueue(std::move(t));
 	}
 
-	while (pool.worker < thread_num) {}	//prevent screen tearing.
+	while (pool.worker < numtasks) {}	//prevent screen tearing.
 
 }
 
 void ComputeMethods::frac_async(const olc::vd2d & ScreenTL, const olc::vd2d & ScreenBR, const olc::vd2d & FractalTL, const olc::vd2d & FractalBR, int maxiterations)
 {
-	int ScreenWidth = (ScreenBR.x - ScreenTL.x) / thread_num;
-	double FractalWidth = (FractalBR.x - FractalTL.x) / double(thread_num);
+	int ScreenWidth = (ScreenBR.x - ScreenTL.x) / numtasks;
+	double FractalWidth = (FractalBR.x - FractalTL.x) / double(numtasks);
 
 	std::vector<std::future<void>> futures;
 
-	for (int i = 0; i < thread_num; ++i) {
+	for (int i = 0; i < numtasks; ++i) {
 
 		futures.push_back(std::async(std::launch::async, &ComputeMethods::frac_SIMD, this,
 			olc::vd2d(ScreenTL.x + ScreenWidth * (i), ScreenTL.y),			//SCREENTL

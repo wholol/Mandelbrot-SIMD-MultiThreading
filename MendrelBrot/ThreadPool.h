@@ -12,75 +12,22 @@ public:
 
 	ThreadPool();
 	
-	ThreadPool(int numThreads)
-	{
-		start(numThreads);
-	};
-
-	~ThreadPool()
-	{
-		stop();
-	}
+	ThreadPool(int numThreads);
 
 	using Task = std::packaged_task<void()>;
-	void enqueue(Task task)
-	{
+	void enqueue(Task task);
 
-		{
-			//get lock, unlocks when it goes out of scope
-			std::unique_lock<std::mutex> m(eventmutex);
-			q.push_back(std::move(task));
-		}
-
-		eventvar.notify_one();
-	}
+	~ThreadPool();
 
 private:
 
 	std::vector<std::thread> threads;
 	std::condition_variable eventvar;
 	std::mutex eventmutex;
-	std::mutex count;
 	std::deque<Task> q;
 	bool bStop = false;
 
-	void start(int numThreads) {
-		for (int i = 0; i < numThreads; ++i)
-		{
-			threads.emplace_back([=] {
-				while (true)
-				{
-					Task t;
+	void start(int numThreads);
 
-					{
-						std::unique_lock<std::mutex> m(eventmutex);
-
-						eventvar.wait(m, [=] {return bStop || !q.empty(); });
-
-						if (bStop && q.empty()) break;
-
-						t = std::move(q.front());
-
-						q.pop_front();
-
-					}
-					t();
-					worker++;
-				}
-
-			});
-		}
-	}
-
-	void stop()
-	{
-		std::unique_lock<std::mutex> lock(eventmutex);
-		bStop = true;
-		eventvar.notify_all();
-
-		for (auto& t : threads)
-		{
-			t.join();
-		}
-	}
+	void stop();
 };
