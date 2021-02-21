@@ -18,7 +18,7 @@ This benchmark is roughly the whole Mandrelbot set. In reality, the set can be z
 <img src="MendrelBrot/benchmark.png"> 
 
 ## Using the Program
-Requires Visual Studio 2017 minimum. Simply download the git repo and run the project. 
+Requires Visual Studio 2017 minimum. Simply download the git repo and run the project.  
 Use keys 1,2,3,4,5 to alter between computation methods.  
 Use the up and down arrow keys to increase or decreases iterations for the set.   
 To sample the time taken for a particular iteration and parse it into a csv file, press S.
