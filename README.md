@@ -9,7 +9,7 @@ multithreading and SIMD
 threadpool and SIMD  
 std::async and SIMD  
 
-<img src="MendrelBrot/SIMD.png"> 
+<img src="MendrelBrot/images/SIMD.png"> 
 
 ## Benchmark Results
 CPU : intel i7-7700 HQ (4 cores 8 threads)  
