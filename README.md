@@ -1,4 +1,4 @@
-# Mandelbrot-SIMD-Multithreading
+# Real-Time Mandrelbot Simulator
 MandelBrot program to understand and compare the performance of SIMD and threading, threadpools and std::async. olcPixelGameEngine by javidx9 is used.
 
 this program compares the performance of computing the Mandrelbrot set with various optimizations. The methods used are:
