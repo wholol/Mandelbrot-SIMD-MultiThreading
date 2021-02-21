@@ -129,16 +129,16 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="ComputeMethods.cpp" />
-    <ClCompile Include="main.cpp" />
-    <ClCompile Include="Renderer.cpp" />
-    <ClCompile Include="ThreadPool.cpp" />
+    <ClCompile Include="src\ComputeMethods.cpp" />
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\Renderer.cpp" />
+    <ClCompile Include="src\ThreadPool.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="ComputeMethods.h" />
-    <ClInclude Include="olcPixelGameEngine.h" />
-    <ClInclude Include="Renderer.h" />
-    <ClInclude Include="ThreadPool.h" />
+    <ClInclude Include="src\ComputeMethods.h" />
+    <ClInclude Include="src\olcPixelGameEngine.h" />
+    <ClInclude Include="src\Renderer.h" />
+    <ClInclude Include="src\ThreadPool.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
