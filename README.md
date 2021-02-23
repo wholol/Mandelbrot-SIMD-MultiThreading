@@ -9,6 +9,8 @@ multithreading and SIMD
 threadpool and SIMD  
 std::async and SIMD  
 
+Here is a <a href="https://www.youtube.com/watch?v=jE1qjAJqcqs&ab_channel=JerSow">Video Demo</a>
+
 <img src="MendrelBrot/images/SIMD.png"> 
 
 ## Benchmark Results
